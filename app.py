@@ -121,7 +121,7 @@ if st.button("Run Evaluation"):
             fig_main.data[0].x = steps; fig_main.data[0].y = h_u
             fig_main.data[1].x = steps; fig_main.data[1].y = h_s
             fig_main.data[2].x = steps; fig_main.data[2].y = h_b
-            chart_view.plotly_chart(fig_main, use_container_width=True)
+            chart_view.plotly_chart(fig_main, use_container_width=True, key="main_cumulative_chart")
             
             m_u.metric(label="Unconstrained Return", value=f"{h_u[-1]:.2f}%", delta=f"{r_u:.2f}%")
             m_s.metric(label=f"STATIC Return - Bought: {ticker_s}", value=f"{h_s[-1]:.2f}%", delta=f"{r_s:.2f}%")
