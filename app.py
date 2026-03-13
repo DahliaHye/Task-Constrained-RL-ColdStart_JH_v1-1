@@ -64,7 +64,6 @@ fig_main.update_layout(
 fig_main.add_hline(y=0, line_width=2, line_color="rgba(150,150,150,0.8)")
 
 chart_view = st.empty()
-chart_view.plotly_chart(fig_main, use_container_width=True)
 
 col1, col2, col3 = st.columns(3)
 m_u, m_s, m_b = col1.empty(), col2.empty(), col3.empty()
