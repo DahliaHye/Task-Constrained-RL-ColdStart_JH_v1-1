@@ -83,6 +83,18 @@ def style_df(val):
         return 'font-weight: bold; font-size: 16px;'
     return 'font-weight: bold; font-size: 16px;'
 
+
+def calc_max_drawdown(cum_returns):
+    """누적 수익률 리스트에서 최대 낙폭(%)을 계산합니다."""
+    arr = np.asarray(cum_returns, dtype=float)
+    if arr.size == 0:
+        return 0.0
+    peak = np.maximum.accumulate(arr)
+    # peak가 0인 구간(초기 구간)에서는 낙폭을 0으로 처리
+    with np.errstate(divide="ignore", invalid="ignore"):
+        drawdowns = np.where(peak > 0, (arr - peak) / peak * 100.0, 0.0)
+    return float(drawdowns.min()) if drawdowns.size > 0 else 0.0
+
 if st.button("Run Evaluation"):
     for run in range(auto_runs):
         trial_idx = len(st.session_state.trial_history)
@@ -119,12 +131,19 @@ if st.button("Run Evaluation"):
             if speed > 0:
                 time.sleep(speed)
 
+        v_maxdd = calc_max_drawdown(h_u)
+        s_maxdd = calc_max_drawdown(h_s)
+        b_maxdd = calc_max_drawdown(h_b)
+
         st.session_state.trial_history.append({
             "Trial": trial_idx + 1,
             "Seed": current_seed,
             "Vanilla Final (%)": h_u[-1],
             "STATIC Final (%)": h_s[-1],
-            "RGLD Final (%)": h_b[-1]
+            "RGLD Final (%)": h_b[-1],
+            "Vanilla MaxDD (%)": v_maxdd,
+            "STATIC MaxDD (%)": s_maxdd,
+            "RGLD MaxDD (%)": b_maxdd,
         })
 
         analysis_header.markdown("#### Agent Decision Analysis")
@@ -152,6 +171,10 @@ if len(st.session_state.trial_history) > 0:
     s_std = df_h['STATIC Final (%)'].std() if len(df_h) > 1 else 0.0
     avg_benchmark = df_h['RGLD Final (%)'].mean()
 
+    # Trial별 알파(벤치마크 대비 초과 수익률) 계산
+    df_h['Vanilla Alpha (%)'] = df_h['Vanilla Final (%)'] - df_h['RGLD Final (%)']
+    df_h['STATIC Alpha (%)'] = df_h['STATIC Final (%)'] - df_h['RGLD Final (%)']
+
     st.success(f"벤치마크(RGLD) 대비 **Alpha 기대치(Expected Value)**: STATIC **{s_mean - avg_benchmark:.2f}%p** | Vanilla **{v_mean - avg_benchmark:.2f}%p**")
 
     # == 회차별 누적 성과 추이 그래프 ==
@@ -178,7 +201,26 @@ if len(st.session_state.trial_history) > 0:
     fig_trend.add_hline(y=0, line_width=2, line_color="rgba(150,150,150,0.8)")
     st.plotly_chart(fig_trend, use_container_width=True)
 
-    # == 하단 2단 레이아웃 (박스 플롯 & 통계 테이블) ==
+    # == Trial별 최대 낙폭(Max Drawdown) 추이 그래프 ==
+    if all(col in df_h.columns for col in ["Vanilla MaxDD (%)", "STATIC MaxDD (%)", "RGLD MaxDD (%)"]):
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(x=df_h['Trial'], y=df_h['Vanilla MaxDD (%)'], mode='lines+markers',
+                                    name='<b>Vanilla Max Drawdown</b>', line=dict(color='#e05050', width=2), marker=dict(size=7)))
+        fig_dd.add_trace(go.Scatter(x=df_h['Trial'], y=df_h['STATIC MaxDD (%)'], mode='lines+markers',
+                                    name='<b>STATIC Max Drawdown</b>', line=dict(color='#4a90d9', width=2), marker=dict(size=7)))
+        fig_dd.add_trace(go.Scatter(x=df_h['Trial'], y=df_h['RGLD MaxDD (%)'], mode='lines+markers',
+                                    name='<b>RGLD Max Drawdown</b>', line=dict(color='green', width=2), marker=dict(size=7, symbol='diamond')))
+
+        fig_dd.update_layout(
+            title=dict(text="<b>Max Drawdown per Trial (Risk Profile)</b>", font=dict(size=22, family="Arial Black")),
+            xaxis=dict(title="<b>Trial Number</b>", tickmode='linear', dtick=1),
+            yaxis=dict(title="<b>Max Drawdown (%)</b>"),
+            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=380, margin=dict(t=60, b=40, l=40, r=40)
+        )
+        fig_dd.add_hline(y=0, line_width=2, line_color="rgba(150,150,150,0.8)")
+        st.plotly_chart(fig_dd, use_container_width=True)
+
+    # == 하단 2단 레이아웃 (박스 플롯 & 통계/알파 분포) ==
     col_box, col_tbl_h = st.columns([2, 1])
     with col_box:
         fig_box = go.Figure()
@@ -225,5 +267,50 @@ if len(st.session_state.trial_history) > 0:
             </ul>
         </div>
         """, unsafe_allow_html=True)
-        
-        st.dataframe(df_h.set_index("Trial").style.map(style_df).format({"Vanilla Final (%)": "{:.2f}", "STATIC Final (%)": "{:.2f}", "RGLD Final (%)": "{:.2f}", "Seed": "{:.0f}"}), height=320, use_container_width=True)
+
+        # Trial별 알파 분포 히스토그램
+        alpha_long = df_h.melt(
+            id_vars=["Trial"],
+            value_vars=["Vanilla Alpha (%)", "STATIC Alpha (%)"],
+            var_name="Strategy",
+            value_name="Alpha (%)",
+        )
+        alpha_long["Strategy"] = alpha_long["Strategy"].replace(
+            {"Vanilla Alpha (%)": "Vanilla", "STATIC Alpha (%)": "STATIC"}
+        )
+        fig_alpha = px.histogram(
+            alpha_long,
+            x="Alpha (%)",
+            color="Strategy",
+            barmode="overlay",
+            nbins=20,
+            title="<b>Alpha Distribution across Trials (vs. RGLD)</b>",
+            color_discrete_map={"Vanilla": "#e05050", "STATIC": "#4a90d9"},
+        )
+        fig_alpha.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            height=320,
+            margin=dict(t=60, b=40, l=40, r=10),
+        )
+        st.plotly_chart(fig_alpha, use_container_width=True)
+
+        st.dataframe(
+            df_h.set_index("Trial")
+            .style.map(style_df)
+            .format(
+                {
+                    "Vanilla Final (%)": "{:.2f}",
+                    "STATIC Final (%)": "{:.2f}",
+                    "RGLD Final (%)": "{:.2f}",
+                    "Seed": "{:.0f}",
+                    "Vanilla MaxDD (%)": "{:.2f}",
+                    "STATIC MaxDD (%)": "{:.2f}",
+                    "RGLD MaxDD (%)": "{:.2f}",
+                    "Vanilla Alpha (%)": "{:.2f}",
+                    "STATIC Alpha (%)": "{:.2f}",
+                }
+            ),
+            height=320,
+            use_container_width=True,
+        )
