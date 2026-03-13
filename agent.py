@@ -5,11 +5,11 @@ import streamlit as st
 import config
 
 class SP500Environment:
-    """ S&P 500 대표 종목 및 벤치마크(SPY) 데이터를 관리하는 환경 """
+    """ 벤치마크(RGLD) 및 관련 종목 데이터를 관리하는 환경 """
     def __init__(self):
         self.tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "XOM", "LLY", "V",
                         "JPM", "UNH", "WMT", "MA", "JNJ", "PG", "HD", "ORCL", "CVX", "MRK"]
-        self.benchmark = "SPY"
+        self.benchmark = "RGLD"
         self.all_symbols = self.tickers + [self.benchmark]
         
         self.data, self.tickers = self._download_data()
